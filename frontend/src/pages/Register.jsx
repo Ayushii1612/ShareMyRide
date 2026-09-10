@@ -170,6 +170,13 @@ function Register() {
     setValues((previous) => ({ ...previous, [key]: value }));
   const advance = async (event) => {
     event.preventDefault();
+    if (step === 4) {
+      const digits = values.phone.replace(/\D/g, "");
+      if (digits.length < 10) {
+        alert("Phone number must contain at least 10 digits.");
+        return;
+      }
+    }
     if (current.fields.some(([key]) => !values[key])) return;
     if (step < steps.length - 1) {
       setStep(step + 1);

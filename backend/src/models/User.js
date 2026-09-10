@@ -11,6 +11,8 @@ const userSchema = new mongoose.Schema({
 	password: { type: String, required: true, minlength: 8, select: false },
 	role: { type: String, enum: ['user', 'admin'], default: 'user' },
 	phoneVerified: { type: Boolean, default: false },
+	resetPasswordToken: { type: String, default: null },
+	resetPasswordExpiresAt: { type: Date, default: null },
 }, { timestamps: true });
 
 userSchema.pre('save', async function save() {
