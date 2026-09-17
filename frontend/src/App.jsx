@@ -161,7 +161,7 @@ function HomePage() {
 						<p className="hero-text">Find friendly rides going your way, or turn your empty seats into shared travel costs.</p>
 					</div>
 					<div className="hero-image image-one" role="img" aria-label="Friends enjoying a road trip" />
-					<form className="search-panel" onSubmit={submitSearch}>
+					<form id="search" className="search-panel" onSubmit={submitSearch}>
 						<LocationField label="From" value={from} onChange={setFrom} placeholder="City or place" />
 						<span className="swap">↔</span>
 						<LocationField label="To" value={to} onChange={setTo} placeholder="City or place" />
@@ -186,7 +186,7 @@ function HomePage() {
 					<button className="light-button" onClick={() => jumpTo('search')}>Explore all routes <span>→</span></button>
 				</section>
 
-				<section className="story-section" id="search">
+				<section className="story-section">
 					<div className="story-image image-two" role="img" aria-label="Driver in a car" />
 					<div className="story-copy"><p className="eyebrow">NEVER MISS A CARPOOL</p><h2>Your next seat is closer than you think.</h2><p>Set your route once and discover a growing network of people heading in the same direction. Simple plans, shared costs, better journeys.</p><button className="primary-button" onClick={() => jumpTo('search')}>Find a ride <span>→</span></button></div>
 				</section>
@@ -197,7 +197,7 @@ function HomePage() {
 
 				<section className="quote-section"><div><p className="eyebrow">REAL PEOPLE. REAL JOURNEYS.</p><h2>“Carpooling makes the long way feel like the right way.”</h2><p className="quote-author">Aarav, from Pune</p></div><div className="quote-image image-four" role="img" aria-label="Passenger smiling in a car" /></section>
 
-				<section className="help-section" id="help"><div className="section-heading"><p className="eyebrow">A LITTLE HELP ALONG THE WAY</p><h2>Carpool Help Centre</h2></div><div className="faq-grid">{faqs.map(([question, answer]) => <details key={question}><summary>{question}<span>+</span></summary><p>{answer}</p></details>)}</div><button className="primary-button" onClick={() => setNotice('Help Centre articles are being prepared for your first trip.')}>Read our Help Centre <span>→</span></button></section>
+				<section className="help-section" id="help"><div className="section-heading"><p className="eyebrow">A LITTLE HELP ALONG THE WAY</p><h2>Carpool Help Centre</h2></div><div className="faq-grid">{faqs.map(([question, answer]) => <details key={question}><summary>{question}<span>+</span></summary><p>{answer}</p></details>)}</div><button className="primary-button" onClick={() => { setActiveAccountView('help'); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Read our Help Centre <span>→</span></button></section>
 
 				<section className="app-banner"><div><p className="eyebrow">YOUR JOURNEYS, IN YOUR POCKET</p><h2>Enjoy a better travel experience with the CarPooling app.</h2><p>Keep your rides, messages, and tickets together wherever you go.</p><div className="store-buttons"><button> <span>Download on the<br /><b>App Store</b></span></button><button>▶ <span>GET IT ON<br /><b>Google Play</b></span></button></div></div><div className="phone-mockup"><div className="phone-screen"><span>Upcoming ride</span><strong>Pune → Mumbai</strong><small>Tomorrow · 08:30</small><div className="ticket-line" /><span>Seat confirmed</span></div></div></section>
 			</main>
