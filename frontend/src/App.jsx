@@ -41,10 +41,10 @@ function LocationField({ label, value, onChange, placeholder }) {
 		}, 350)
 		return () => { window.clearTimeout(timer); controller.abort() }
 	}, [query, value?.address])
-	const choose = (place) => { const location = { address: place.display_name, latitude: Number(place.lat), longitude: Number(place.lon) }; setQuery(location.address); setSuggestions([]); onChange(location) }
+	const choose = (place) => { const address = place.display_name || `${place.lat}, ${place.lon}`; const location = { name: place.name || address.split(',')[0], address, latitude: Number(place.lat), longitude: Number(place.lon) }; setQuery(location.address); setSuggestions([]); onChange(location) }
 	const useCurrentLocation = () => navigator.geolocation?.getCurrentPosition(async ({ coords }) => {
 		try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coords.latitude}&lon=${coords.longitude}`, { headers: { Accept: 'application/json' } }); const place = await response.json(); choose({ display_name: place.display_name || `${coords.latitude}, ${coords.longitude}`, lat: coords.latitude, lon: coords.longitude }) } catch { onChange({ address: 'Current location', latitude: coords.latitude, longitude: coords.longitude }) }
-	}, () => setSuggestions([]))
+	}, () => onChange({ name: 'Current location', address: 'Current location', latitude: 0, longitude: 0 }))
 	return <div className="location-field"><label><span>{label}</span><input value={query} onChange={(event) => { setQuery(event.target.value); onChange(null) }} onKeyDown={(event) => { if (event.key === 'Enter' && suggestions[0]) { event.preventDefault(); choose(suggestions[0]) } }} placeholder={placeholder} autoComplete="off" /><button type="button" onClick={useCurrentLocation} aria-label={`Use current location for ${label}`}>⌖</button></label>{loading && <small className="location-status">Finding places...</small>}{suggestions.length > 0 && <div className="location-suggestions">{suggestions.map((place) => <button type="button" key={place.place_id} onClick={() => choose(place)}><strong>{place.name || place.address?.road || place.display_name.split(',')[0]}</strong><span>{place.display_name}</span></button>)}</div>}{query && !value && !loading && <small className="location-hint">Choose a suggestion or press Enter to confirm this exact point.</small>}{value && <small className="location-confirmed">Exact point selected: {value.latitude.toFixed(5)}, {value.longitude.toFixed(5)}</small>}</div>
 }
 
@@ -54,6 +54,7 @@ function HomePage() {
 	const [from, setFrom] = useState(null)
 	const [to, setTo] = useState(null)
 	const [date, setDate] = useState('')
+	const [returnDate, setReturnDate] = useState('')
 	const [passengers, setPassengers] = useState(1)
 	const [notice, setNotice] = useState('')
 	const [matches, setMatches] = useState([])
@@ -161,10 +162,11 @@ function HomePage() {
 					</div>
 					<div className="hero-image image-one" role="img" aria-label="Friends enjoying a road trip" />
 					<form className="search-panel" onSubmit={submitSearch}>
-						<LocationField label="Pickup" value={from} onChange={setFrom} placeholder="Address, landmark or place" />
+						<LocationField label="From" value={from} onChange={setFrom} placeholder="City or place" />
 						<span className="swap">↔</span>
-						<LocationField label="Drop-off" value={to} onChange={setTo} placeholder="Address, landmark or place" />
-						<label className="date-field"><span>Departure</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+						<LocationField label="To" value={to} onChange={setTo} placeholder="City or place" />
+						<label className="date-field"><span>Departure</span><input type="date" value={date} onClick={(event) => event.currentTarget.showPicker?.()} onChange={(event) => setDate(event.target.value)} /><small>{date ? new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Today'}</small></label>
+						<label className="return-field"><span>Return</span><input type="date" value={returnDate} onClick={(event) => event.currentTarget.showPicker?.()} onChange={(event) => setReturnDate(event.target.value)} /><small>{returnDate ? new Date(`${returnDate}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Date'}</small></label>
 						<label className="passenger-field"><span>Passengers</span><select value={passengers} onChange={(event) => setPassengers(Number(event.target.value))}><option value={1}>1 passenger</option><option value={2}>2 passengers</option><option value={3}>3 passengers</option><option value={4}>4 passengers</option></select></label>
 						<button className="search-button" type="submit">Search <span>→</span></button>
 					</form>
