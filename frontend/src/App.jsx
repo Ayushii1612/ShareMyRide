@@ -8,6 +8,7 @@ import ForgotPassword from './pages/ForgotPassword.jsx'
 import { logout } from './features/auth/authSlice.js'
 import { changeUserPassword } from './api/auth.api.js'
 import { calculateRideRoute, createRide, searchRides } from './api/ride.api.js'
+import { createBooking } from './api/booking.api.js'
 
 const popularRoutes = [
 	['Gurgaon', 'Rohtak'],
@@ -28,15 +29,17 @@ function LocationField({ label, value, onChange, placeholder }) {
 	const [query, setQuery] = useState(value?.address || '')
 	const [suggestions, setSuggestions] = useState([])
 	const [loading, setLoading] = useState(false)
+	const [activeIndex, setActiveIndex] = useState(0)
 	useEffect(() => { setQuery(value?.address || '') }, [value?.address])
 	useEffect(() => {
-		if (query.trim().length < 3 || query === value?.address) { setSuggestions([]); return undefined }
+		if (query.trim().length < 2 || query === value?.address) { setSuggestions([]); setActiveIndex(0); return undefined }
 		const controller = new AbortController()
 		const timer = window.setTimeout(async () => {
 			setLoading(true)
 			try {
-				const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&addressdetails=1&q=${encodeURIComponent(query)}`, { signal: controller.signal, headers: { Accept: 'application/json' } })
+				const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&addressdetails=1&countrycodes=in&accept-language=en&q=${encodeURIComponent(query)}`, { signal: controller.signal, headers: { Accept: 'application/json' } })
 				setSuggestions(await response.json())
+				setActiveIndex(0)
 			} catch (error) { if (error.name !== 'AbortError') setSuggestions([]) } finally { setLoading(false) }
 		}, 350)
 		return () => { window.clearTimeout(timer); controller.abort() }
@@ -45,7 +48,13 @@ function LocationField({ label, value, onChange, placeholder }) {
 	const useCurrentLocation = () => navigator.geolocation?.getCurrentPosition(async ({ coords }) => {
 		try { const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${coords.latitude}&lon=${coords.longitude}`, { headers: { Accept: 'application/json' } }); const place = await response.json(); choose({ display_name: place.display_name || `${coords.latitude}, ${coords.longitude}`, lat: coords.latitude, lon: coords.longitude }) } catch { onChange({ address: 'Current location', latitude: coords.latitude, longitude: coords.longitude }) }
 	}, () => onChange({ name: 'Current location', address: 'Current location', latitude: 0, longitude: 0 }))
-	return <div className="location-field"><label><span>{label}</span><input value={query} onChange={(event) => { setQuery(event.target.value); onChange(null) }} onKeyDown={(event) => { if (event.key === 'Enter' && suggestions[0]) { event.preventDefault(); choose(suggestions[0]) } }} placeholder={placeholder} autoComplete="off" /><button type="button" onClick={useCurrentLocation} aria-label={`Use current location for ${label}`}>⌖</button></label>{loading && <small className="location-status">Finding places...</small>}{suggestions.length > 0 && <div className="location-suggestions">{suggestions.map((place) => <button type="button" key={place.place_id} onClick={() => choose(place)}><strong>{place.name || place.address?.road || place.display_name.split(',')[0]}</strong><span>{place.display_name}</span></button>)}</div>}{query && !value && !loading && <small className="location-hint">Choose a suggestion or press Enter to confirm this exact point.</small>}{value && <small className="location-confirmed">Exact point selected: {value.latitude.toFixed(5)}, {value.longitude.toFixed(5)}</small>}</div>
+	const handleKeyDown = (event) => {
+		if (event.key === 'ArrowDown' && suggestions.length) { event.preventDefault(); setActiveIndex((index) => (index + 1) % suggestions.length) }
+		if (event.key === 'ArrowUp' && suggestions.length) { event.preventDefault(); setActiveIndex((index) => (index - 1 + suggestions.length) % suggestions.length) }
+		if (event.key === 'Enter' && suggestions[activeIndex]) { event.preventDefault(); choose(suggestions[activeIndex]) }
+		if (event.key === 'Escape') setSuggestions([])
+	}
+	return <div className="location-field"><label><span>{label}</span><input value={query} onChange={(event) => { setQuery(event.target.value); onChange(null) }} onKeyDown={handleKeyDown} placeholder={placeholder} autoComplete="off" aria-autocomplete="list" aria-expanded={suggestions.length > 0} /><button type="button" onClick={useCurrentLocation} aria-label={`Use current location for ${label}`}>⌖</button></label>{loading && <small className="location-status">Searching places...</small>}{!loading && query.trim().length >= 2 && !value && suggestions.length === 0 && <small className="location-status">No places found. Try a nearby landmark or area.</small>}{suggestions.length > 0 && <div className="location-suggestions" role="listbox">{suggestions.map((place, index) => { const title = place.name || place.address?.road || place.display_name.split(',')[0]; const detail = place.display_name.replace(`${title},`, '').trim(); return <button className={index === activeIndex ? 'active' : ''} type="button" role="option" aria-selected={index === activeIndex} key={place.place_id} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(place)}><span className="location-pin">⌖</span><span className="location-copy"><strong>{title}</strong><small>{detail}</small></span></button> })}</div>}{query && !value && !loading && suggestions.length > 0 && <small className="location-hint">Select a place to use its exact road location.</small>}</div>
 }
 
 function HomePage() {
@@ -59,6 +68,7 @@ function HomePage() {
 	const [notice, setNotice] = useState('')
 	const [matches, setMatches] = useState([])
 	const [searching, setSearching] = useState(false)
+	const [bookingRideId, setBookingRideId] = useState(null)
 	const [showOffer, setShowOffer] = useState(false)
 	const [showAccount, setShowAccount] = useState(false)
 	const [activeAccountView, setActiveAccountView] = useState(null)
@@ -68,16 +78,45 @@ function HomePage() {
 	const submitSearch = async (event) => {
 		event.preventDefault()
 		if (!from || !to) {
-			setNotice('Choose an exact pickup and drop-off place from the suggestions.')
+			setNotice('')
 			return
 		}
 		if (!date) { setNotice('Choose a departure date to find compatible rides.'); return }
 		setSearching(true)
 		try {
-			const response = await searchRides({ pickup: from, dropoff: to, departureDate: date })
-			setMatches(response.data.rides || [])
-			setNotice(response.data.rides?.length ? `Found ${response.data.rides.length} compatible planned ride${response.data.rides.length > 1 ? 's' : ''}.` : 'No compatible planned rides found for these exact points.')
+			const response = await searchRides({ pickup: from, dropoff: to, departureDate: date, passengers })
+			const rides = response.data.rides || []
+			const dateRides = response.data.diagnostics?.dateRides
+			const [year, month, day] = date.split('-').map(Number)
+			const formattedDate = new Date(year, month - 1, day).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
+			setMatches(rides)
+			setNotice(rides.length ? `Found ${rides.length} compatible planned ride${rides.length > 1 ? 's' : ''}.` : dateRides === 0 ? `No rides found for ${formattedDate}. Try another date or offer a ride.` : 'No compatible rides found.')
 		} catch (error) { setNotice(error.response?.data?.message || 'Unable to search rides right now.') } finally { setSearching(false) }
+	}
+
+	const handleBookRide = async (ride) => {
+		if (!user) {
+			setNotice('Log in to book this ride.');
+			return;
+		}
+		if (ride.driver && (ride.driver._id === user.id || ride.driver._id === user._id)) {
+			setNotice('You cannot book your own ride.');
+			return;
+		}
+		if (ride.availableSeats < 1) {
+			setNotice('This ride has no seats left.');
+			return;
+		}
+		setBookingRideId(ride._id)
+		try {
+			await createBooking({ rideId: ride._id, seats: 1 })
+			setNotice('Ride booked successfully. You are now confirmed on this trip.')
+			setMatches((current) => current.filter((item) => item.ride._id !== ride._id))
+		} catch (error) {
+			setNotice(error.response?.data?.message || 'Unable to book this ride right now.')
+		} finally {
+			setBookingRideId(null)
+		}
 	}
 
 	const jumpTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
@@ -171,8 +210,8 @@ function HomePage() {
 						<button className="search-button" type="submit">Search <span>→</span></button>
 					</form>
 					{notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss">×</button></div>}
-					{matches.length > 0 && <div className="ride-match-results"><h2>Compatible planned rides</h2>{matches.map(({ ride, match }) => <article key={ride._id}><div><strong>{ride.origin.name} → {ride.destination.name}</strong><span>{new Date(ride.departureAt).toLocaleString()} · {ride.availableSeats} seat{ride.availableSeats > 1 ? 's' : ''}</span></div><div><span>Pickup {Math.round(match.pickupDistanceMeters)}m from route · Drop-off {Math.round(match.dropoffDistanceMeters)}m from route</span><b>{(ride.routeDistanceMeters / 1000).toFixed(1)} km</b></div></article>)}</div>}
 				</section>
+				{matches.length > 0 && <section className="ride-results-page" aria-label="Ride search results"><div className="ride-results-head"><div><p className="eyebrow">OUTBOUND · {date ? new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : 'TODAY'}</p><h2>{from?.name || 'Your pickup'} <span>→</span> {to?.name || 'Your destination'}</h2></div><strong>{matches.length} ride{matches.length > 1 ? 's' : ''} available</strong></div><div className="ride-results-layout"><aside className="ride-results-map"><div className="map-road map-road-one" /><div className="map-road map-road-two" /><div className="map-road map-road-three" /><span className="map-pin map-pin-start">A</span><span className="map-pin map-pin-end">B</span><button type="button">⌖ Show on map</button></aside><div className="ride-results-list"><div className="ride-filter-row"><strong>Rides matching your route</strong><button type="button">Sort by best match⌄</button></div>{matches.map(({ ride, match }) => { const departure = new Date(ride.departureAt); const driverName = ride.driver ? `${ride.driver.firstName || ''} ${ride.driver.lastName || ''}`.trim() : 'CarPooling driver'; return <article className="ride-result-card" key={ride._id}><div className="ride-time"><strong>{departure.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong><span>{Math.max(1, Math.round((ride.routeDurationSeconds || 0) / 3600))}h</span><strong>{new Date(departure.getTime() + (ride.routeDurationSeconds || 0) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong></div><div className="ride-route-copy"><strong>{ride.origin.name}</strong><span>{ride.destination.name}</span><small>Pickup {Math.round(match.pickupDistanceMeters)}m from route · Drop-off {Math.round(match.dropoffDistanceMeters)}m</small></div><div className="ride-driver"><span className="driver-avatar">{driverName[0] || 'D'}</span><span><strong>{driverName}</strong><small>Available seats: {ride.availableSeats}</small></span></div><div className="ride-price"><strong>₹{Number(ride.pricePerSeat || 0).toFixed(0)}</strong><small>per seat</small></div><button type="button" className="primary-button ride-book-button" onClick={() => handleBookRide(ride)} disabled={bookingRideId === ride._id}>{bookingRideId === ride._id ? 'Booking...' : 'Accept ride'}</button></article> })}</div></div></section>}
 
 				<section className="benefits" id="why">
 					<article><span className="benefit-icon">↗</span><h2>Travel everywhere</h2><p>Explore cities and quiet corners with rides going your way.</p></article>
@@ -213,19 +252,19 @@ function HomePage() {
 						<div className="footer-bottom"><span>Terms and Conditions</span><span>© 2026 CarPooling</span></div>
 					</footer>
 
-					{showOffer && <OfferRideModal user={user} onClose={() => setShowOffer(false)} onPublish={(message) => { setShowOffer(false); setNotice(message) }} />}
+					{showOffer && <OfferRideModal user={user} onClose={() => setShowOffer(false)} onAuthExpired={() => { dispatch(logout()); setShowOffer(false); setNotice('Your session expired. Please log in again before publishing a ride.') }} onPublish={(message) => { setShowOffer(false); setNotice(message) }} />}
 				</>
 			)}
 		</div>
 	)
 }
 
-function OfferRideModal({ user, onClose, onPublish }) {
+function OfferRideModal({ user, onClose, onAuthExpired, onPublish }) {
 	const [pickup, setPickup] = useState(null)
 	const [dropoff, setDropoff] = useState(null)
 	const [departureAt, setDepartureAt] = useState('')
 	const [availableSeats, setAvailableSeats] = useState(1)
-	const [pricePerSeat, setPricePerSeat] = useState(0)
+	const [pricePerSeat, setPricePerSeat] = useState('')
 	const [error, setError] = useState('')
 	const [saving, setSaving] = useState(false)
 	const submit = async (event) => {
@@ -235,11 +274,14 @@ function OfferRideModal({ user, onClose, onPublish }) {
 		setSaving(true)
 		try {
 			const routeResponse = await calculateRideRoute({ origin: pickup, destination: dropoff })
-			await createRide({ origin: pickup, destination: dropoff, departureAt: new Date(departureAt).toISOString(), availableSeats: Number(availableSeats), pricePerSeat: Number(pricePerSeat), routeDistanceMeters: routeResponse.data.distanceMeters, routeDurationSeconds: routeResponse.data.durationSeconds, routeGeometry: routeResponse.data.geometry })
+			await createRide({ origin: pickup, destination: dropoff, departureAt: new Date(departureAt).toISOString(), availableSeats: Number(availableSeats), pricePerSeat: Number(pricePerSeat || 0), routeDistanceMeters: routeResponse.data.distanceMeters, routeDurationSeconds: routeResponse.data.durationSeconds, routeGeometry: routeResponse.data.geometry })
 			onPublish(`Ride published from ${pickup.address} to ${dropoff.address}. Route: ${(routeResponse.data.distanceMeters / 1000).toFixed(1)} km.`)
-		} catch (requestError) { setError(requestError.response?.data?.message || requestError.message || 'Unable to publish this ride.') } finally { setSaving(false) }
+		} catch (requestError) {
+			if (requestError.response?.status === 401) return onAuthExpired()
+			setError(requestError.response?.data?.message || requestError.message || 'Unable to publish this ride.')
+		} finally { setSaving(false) }
 	}
-	return <div className="modal-backdrop" onClick={onClose}><div className="offer-modal location-modal" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="Close">×</button><p className="eyebrow">SHARE YOUR EMPTY SEATS</p><h2>Plan your journey</h2><p>Choose the exact places and time for the trip you already intend to make.</p><form onSubmit={submit}><LocationField label="Pickup" value={pickup} onChange={setPickup} placeholder="Address, landmark or place" /><LocationField label="Drop-off" value={dropoff} onChange={setDropoff} placeholder="Address, landmark or place" /><label className="ride-modal-input"><span>Departure</span><input type="datetime-local" value={departureAt} onChange={(event) => setDepartureAt(event.target.value)} required /></label><label className="ride-modal-input"><span>Available seats</span><select value={availableSeats} onChange={(event) => setAvailableSeats(event.target.value)}><option value={1}>1 seat</option><option value={2}>2 seats</option><option value={3}>3 seats</option><option value={4}>4 seats</option></select></label><label className="ride-modal-input"><span>Price per seat</span><input type="number" min="0" value={pricePerSeat} onChange={(event) => setPricePerSeat(event.target.value)} /></label>{error && <p className="location-error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={saving}>{saving ? 'Calculating route...' : 'Publish planned ride'} <span>→</span></button></form></div></div>
+	return <div className="modal-backdrop" onClick={onClose}><div className="offer-modal location-modal" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="Close">×</button><p className="eyebrow">SHARE YOUR EMPTY SEATS</p><h2>Plan your journey</h2><p>Choose the exact places and time for the trip you already intend to make.</p><form onSubmit={submit}><LocationField label="Pickup" value={pickup} onChange={setPickup} placeholder="Address, landmark or place" /><LocationField label="Drop-off" value={dropoff} onChange={setDropoff} placeholder="Address, landmark or place" /><label className="ride-modal-input"><span>Departure</span><input type="datetime-local" value={departureAt} onChange={(event) => setDepartureAt(event.target.value)} required /></label><label className="ride-modal-input"><span>Available seats</span><select value={availableSeats} onChange={(event) => setAvailableSeats(event.target.value)}><option value={1}>1 seat</option><option value={2}>2 seats</option><option value={3}>3 seats</option><option value={4}>4 seats</option></select></label><label className="ride-modal-input"><span>Price per seat</span><input type="text" inputMode="numeric" pattern="[0-9]*" maxLength="6" placeholder="Enter amount" value={pricePerSeat} onChange={(event) => setPricePerSeat(event.target.value.replace(/[^0-9]/g, ''))} /></label>{error && <p className="location-error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={saving}>{saving ? 'Calculating route...' : 'Publish planned ride'} <span>→</span></button></form></div></div>
 }
 
 function HelpCentreView() {

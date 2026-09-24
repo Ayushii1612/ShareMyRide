@@ -1,5 +1,5 @@
 const Ride = require('../models/Ride');
-const { calculateRoute, routeMatch } = require('../services/route.service');
+const { calculateRoute, findCompatibleRides } = require('../services/route.service');
 
 const validateLocation = (location) => location && typeof location.name === 'string' && Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude));
 
@@ -18,16 +18,32 @@ const createRide = async (req, res) => {
 };
 
 const searchRides = async (req, res) => {
-	const { pickup, dropoff, departureDate, maxRouteDistanceMeters = 5000, maxDetourMeters = 15000 } = req.body;
+	const { pickup, dropoff, departureDate, passengers = 1, maxRouteDistanceMeters = 5000, maxDetourMeters = 15000 } = req.body;
 	if (!validateLocation(pickup) || !validateLocation(dropoff)) return res.status(422).json({ message: 'Pickup and drop-off must include a name, latitude, and longitude.' });
+	const requestedSeats = Number(passengers);
+	if (!Number.isInteger(requestedSeats) || requestedSeats < 1 || requestedSeats > 4) return res.status(422).json({ message: 'Passengers must be a whole number between 1 and 4.' });
 	const dayStart = new Date(departureDate);
 	if (Number.isNaN(dayStart.getTime())) return res.status(422).json({ message: 'A valid departure date is required.' });
 	dayStart.setHours(0, 0, 0, 0);
 	const dayEnd = new Date(dayStart);
 	dayEnd.setDate(dayEnd.getDate() + 1);
-	const rides = await Ride.find({ status: 'published', availableSeats: { $gt: 0 }, departureAt: { $gte: dayStart, $lt: dayEnd } }).populate('driver', 'firstName lastName').lean();
-	const matches = rides.map((ride) => ({ ride, match: routeMatch(ride, pickup, dropoff, { maxRouteDistanceMeters: Number(maxRouteDistanceMeters), maxDetourMeters: Number(maxDetourMeters) }) })).filter((item) => item.match.compatible).sort((first, second) => first.match.score - second.match.score);
-	return res.json({ rides: matches });
+	const dateRides = await Ride.find({ status: 'published', departureAt: { $gte: dayStart, $lt: dayEnd } }).populate('driver', 'firstName lastName').lean();
+	const seatEligibleRides = dateRides.filter((ride) => ride.availableSeats >= requestedSeats);
+	const matches = findCompatibleRides(seatEligibleRides, pickup, dropoff, { requestedSeats, maxRouteDistanceMeters: Number(maxRouteDistanceMeters), maxDetourMeters: Number(maxDetourMeters) });
+	return res.json({
+		success: true,
+		count: matches.length,
+		rides: matches,
+		diagnostics: {
+			dateRides: dateRides.length,
+			seatEligibleRides: seatEligibleRides.length,
+			compatibleRides: matches.length,
+			requestedSeats,
+			departureDate,
+			pickup: { latitude: Number(pickup.latitude), longitude: Number(pickup.longitude) },
+			dropoff: { latitude: Number(dropoff.latitude), longitude: Number(dropoff.longitude) },
+		},
+	});
 };
 
 const getRide = async (req, res) => {

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "test": "node --test src/services/route.service.test.js"
+    "test": "node --test src/services/route.service.test.js",
+    "seed:demo": "node scripts/seed-demo-ride.js"
   },
   "keywords": [],
   "author": "",

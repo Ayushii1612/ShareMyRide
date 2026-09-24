@@ -49,15 +49,22 @@ const closestRoutePosition = (point, coordinates) => {
 };
 
 const routeMatch = (ride, pickup, dropoff, options = {}) => {
-	const maxRouteDistanceMeters = options.maxRouteDistanceMeters || 5000;
-	const maxDetourMeters = options.maxDetourMeters || 15000;
-	const coordinates = ride.routeGeometry.coordinates;
+	const maxRouteDistanceMeters = Number.isFinite(options.maxRouteDistanceMeters) ? options.maxRouteDistanceMeters : 5000;
+	const maxDetourMeters = Number.isFinite(options.maxDetourMeters) ? options.maxDetourMeters : 15000;
+	const requestedSeats = Number.isFinite(options.requestedSeats) ? options.requestedSeats : 1;
+	const coordinates = ride.routeGeometry?.coordinates || [];
+	if (coordinates.length < 2) return { compatible: false, reason: 'missing-route-geometry', score: Number.MAX_SAFE_INTEGER };
 	const pickupMatch = closestRoutePosition(pickup, coordinates);
 	const dropoffMatch = closestRoutePosition(dropoff, coordinates);
 	const orderValid = pickupMatch.positionMeters < dropoffMatch.positionMeters;
 	const detourMeters = pickupMatch.distanceMeters + dropoffMatch.distanceMeters;
-	const compatible = orderValid && pickupMatch.distanceMeters <= maxRouteDistanceMeters && dropoffMatch.distanceMeters <= maxRouteDistanceMeters && detourMeters <= maxDetourMeters && ride.availableSeats > 0;
+	const compatible = orderValid && pickupMatch.distanceMeters <= maxRouteDistanceMeters && dropoffMatch.distanceMeters <= maxRouteDistanceMeters && detourMeters <= maxDetourMeters && ride.availableSeats >= requestedSeats;
 	return { compatible, pickupDistanceMeters: Math.round(pickupMatch.distanceMeters), dropoffDistanceMeters: Math.round(dropoffMatch.distanceMeters), detourMeters: Math.round(detourMeters), pickupPositionMeters: Math.round(pickupMatch.positionMeters), dropoffPositionMeters: Math.round(dropoffMatch.positionMeters), score: Math.round((pickupMatch.distanceMeters + dropoffMatch.distanceMeters) + (orderValid ? 0 : 1000000)) };
 };
 
-module.exports = { calculateRoute, routeMatch, distanceMeters };
+const findCompatibleRides = (rides, pickup, dropoff, options = {}) => rides
+	.map((ride) => ({ ride, match: routeMatch(ride, pickup, dropoff, options) }))
+	.filter(({ match }) => match.compatible)
+	.sort((first, second) => first.match.score - second.match.score);
+
+module.exports = { calculateRoute, routeMatch, findCompatibleRides, distanceMeters };

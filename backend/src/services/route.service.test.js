@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { routeMatch } = require('./route.service');
+const { routeMatch, findCompatibleRides } = require('./route.service');
 
 const ride = (availableSeats = 2) => ({
 	availableSeats,
@@ -29,4 +29,17 @@ test('rejects pickup too far from the route', () => {
 test('rejects a full ride', () => {
 	const result = routeMatch(ride(0), { latitude: 0, longitude: 0.5 }, { latitude: 0, longitude: 1.5 }, { maxRouteDistanceMeters: 1000, maxDetourMeters: 5000 });
 	assert.equal(result.compatible, false);
+});
+
+test('returns every compatible ride in score order', () => {
+	const rides = [ride(2), ride(2), ride(1)];
+	const matches = findCompatibleRides(rides, { latitude: 0, longitude: 0.5 }, { latitude: 0, longitude: 1.5 }, { requestedSeats: 2, maxRouteDistanceMeters: 1000, maxDetourMeters: 5000 });
+	assert.equal(matches.length, 2);
+	assert.deepEqual(matches.map(({ ride }) => ride), rides.slice(0, 2));
+});
+
+test('filters rides that cannot provide the requested passenger count', () => {
+	const matches = findCompatibleRides([ride(1), ride(2)], { latitude: 0, longitude: 0.5 }, { latitude: 0, longitude: 1.5 }, { requestedSeats: 2, maxRouteDistanceMeters: 1000, maxDetourMeters: 5000 });
+	assert.equal(matches.length, 1);
+	assert.equal(matches[0].ride.availableSeats, 2);
 });
