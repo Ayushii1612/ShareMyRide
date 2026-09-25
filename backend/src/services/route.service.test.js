@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { routeMatch, findCompatibleRides } = require('./route.service');
+const { routeMatch, findCompatibleRides, isFutureDeparture } = require('./route.service');
 
 const ride = (availableSeats = 2) => ({
 	availableSeats,
@@ -42,4 +42,12 @@ test('filters rides that cannot provide the requested passenger count', () => {
 	const matches = findCompatibleRides([ride(1), ride(2)], { latitude: 0, longitude: 0.5 }, { latitude: 0, longitude: 1.5 }, { requestedSeats: 2, maxRouteDistanceMeters: 1000, maxDetourMeters: 5000 });
 	assert.equal(matches.length, 1);
 	assert.equal(matches[0].ride.availableSeats, 2);
+});
+
+test('excludes rides whose departure time has already passed', () => {
+	const now = new Date('2026-09-25T17:00:00');
+	assert.equal(isFutureDeparture(new Date('2026-09-25T13:00:00'), now), false);
+	assert.equal(isFutureDeparture(new Date('2026-09-25T16:30:00'), now), false);
+	assert.equal(isFutureDeparture(new Date('2026-09-25T18:00:00'), now), true);
+	assert.equal(isFutureDeparture(new Date('2026-09-26T13:00:00'), now), true);
 });

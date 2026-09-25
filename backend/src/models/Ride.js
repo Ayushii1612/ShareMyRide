@@ -12,6 +12,11 @@ const rideSchema = new mongoose.Schema({
 	destination: { type: locationSchema, required: true },
 	stops: { type: [locationSchema], default: [] },
 	departureAt: { type: Date, required: true, index: true },
+	currentLocation: {
+		latitude: { type: Number, min: -90, max: 90 },
+		longitude: { type: Number, min: -180, max: 180 },
+		updatedAt: { type: Date },
+	},
 	availableSeats: { type: Number, required: true, min: 1, max: 4 },
 	pricePerSeat: { type: Number, min: 0, default: 0 },
 	routeDistanceMeters: { type: Number, required: true, min: 0 },

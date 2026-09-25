@@ -1,5 +1,5 @@
 const Ride = require('../models/Ride');
-const { calculateRoute, findCompatibleRides } = require('../services/route.service');
+const { calculateRoute, findCompatibleRides, isFutureDeparture } = require('../services/route.service');
 
 const validateLocation = (location) => location && typeof location.name === 'string' && Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude));
 
@@ -27,8 +27,10 @@ const searchRides = async (req, res) => {
 	dayStart.setHours(0, 0, 0, 0);
 	const dayEnd = new Date(dayStart);
 	dayEnd.setDate(dayEnd.getDate() + 1);
+	const now = new Date();
 	const dateRides = await Ride.find({ status: 'published', departureAt: { $gte: dayStart, $lt: dayEnd } }).populate('driver', 'firstName lastName').lean();
-	const seatEligibleRides = dateRides.filter((ride) => ride.availableSeats >= requestedSeats);
+	const futureRides = dateRides.filter((ride) => isFutureDeparture(new Date(ride.departureAt), now));
+	const seatEligibleRides = futureRides.filter((ride) => ride.availableSeats >= requestedSeats);
 	const matches = findCompatibleRides(seatEligibleRides, pickup, dropoff, { requestedSeats, maxRouteDistanceMeters: Number(maxRouteDistanceMeters), maxDetourMeters: Number(maxDetourMeters) });
 	return res.json({
 		success: true,
@@ -52,4 +54,19 @@ const getRide = async (req, res) => {
 	return res.json({ ride });
 };
 
-module.exports = { calculateRideRoute, createRide, searchRides, getRide };
+const updateRideLocation = async (req, res) => {
+	const latitude = Number(req.body.latitude);
+	const longitude = Number(req.body.longitude);
+	if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+		return res.status(422).json({ message: 'A valid latitude and longitude are required.' });
+	}
+	const ride = await Ride.findOneAndUpdate(
+		{ _id: req.params.id, driver: req.user._id },
+		{ currentLocation: { latitude, longitude, updatedAt: new Date() } },
+		{ new: true, runValidators: true },
+	).populate('driver', 'firstName lastName');
+	if (!ride) return res.status(404).json({ message: 'Ride not found or you are not its driver.' });
+	return res.json({ ride });
+};
+
+module.exports = { calculateRideRoute, createRide, searchRides, getRide, updateRideLocation };

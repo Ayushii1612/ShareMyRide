@@ -4,3 +4,4 @@ export const calculateRideRoute = (payload) => axiosInstance.post('/rides/route'
 export const createRide = (payload) => axiosInstance.post('/rides', payload)
 export const searchRides = (payload) => axiosInstance.post('/rides/search', payload)
 export const getRide = (id) => axiosInstance.get(`/rides/${id}`)
+export const updateRideLocation = (id, payload) => axiosInstance.patch(`/rides/${id}/location`, payload)

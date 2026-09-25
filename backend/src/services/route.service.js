@@ -62,9 +62,14 @@ const routeMatch = (ride, pickup, dropoff, options = {}) => {
 	return { compatible, pickupDistanceMeters: Math.round(pickupMatch.distanceMeters), dropoffDistanceMeters: Math.round(dropoffMatch.distanceMeters), detourMeters: Math.round(detourMeters), pickupPositionMeters: Math.round(pickupMatch.positionMeters), dropoffPositionMeters: Math.round(dropoffMatch.positionMeters), score: Math.round((pickupMatch.distanceMeters + dropoffMatch.distanceMeters) + (orderValid ? 0 : 1000000)) };
 };
 
+const isFutureDeparture = (departureAt, now = new Date()) => {
+	if (!(departureAt instanceof Date) || Number.isNaN(departureAt.getTime())) return false;
+	return departureAt.getTime() > now.getTime();
+};
+
 const findCompatibleRides = (rides, pickup, dropoff, options = {}) => rides
 	.map((ride) => ({ ride, match: routeMatch(ride, pickup, dropoff, options) }))
 	.filter(({ match }) => match.compatible)
 	.sort((first, second) => first.match.score - second.match.score);
 
-module.exports = { calculateRoute, routeMatch, findCompatibleRides, distanceMeters };
+module.exports = { calculateRoute, routeMatch, findCompatibleRides, distanceMeters, isFutureDeparture };
