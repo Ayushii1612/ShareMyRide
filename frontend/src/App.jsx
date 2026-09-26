@@ -11,7 +11,7 @@ import ForgotPassword from './pages/ForgotPassword.jsx'
 import { logout } from './features/auth/authSlice.js'
 import { changeUserPassword } from './api/auth.api.js'
 import { calculateRideRoute, createRide, getRide, searchRides, updateRideLocation } from './api/ride.api.js'
-import { createBooking } from './api/booking.api.js'
+import { createBooking, getMyBookings } from './api/booking.api.js'
 
 const popularRoutes = [
 	['Gurgaon', 'Rohtak'],
@@ -108,14 +108,21 @@ function RideMapPanel({ ride, pickup, dropoff }) {
 		} catch { /* keep the last valid road route if the routing service is unavailable */ } finally { setRecalculating(false) }
 	}
 	const currentLocation = liveRide?.currentLocation
+	const viewer = JSON.parse(localStorage.getItem('carpooling_user') || 'null')
+	const isDriver = Boolean(viewer?.id && liveRide?.driver && String(liveRide.driver._id || liveRide.driver) === String(viewer.id))
 	const etaMinutes = Math.max(1, Math.round((liveRide?.routeDurationSeconds || ride.routeDurationSeconds || 0) / 60))
 	const shareLocation = () => {
+		if (!isDriver) return setLocationMessage('Only the driver can share this ride location.')
 		if (!navigator.geolocation) return setLocationMessage('Location is not supported by this browser.')
 		navigator.geolocation.getCurrentPosition(async ({ coords }) => {
 			try { const response = await updateRideLocation(ride._id, { latitude: coords.latitude, longitude: coords.longitude }); setLiveRide(response.data.ride); setLocationMessage('Your live location is shared.') } catch (error) { setLocationMessage(error.response?.data?.message || 'Only the driver can share this ride location.') }
 		}, () => setLocationMessage('Allow location access to share your position.'))
 	}
 	return <aside className="ride-results-map"><MapContainer center={routeCoordinates[Math.floor(routeCoordinates.length / 2)]} zoom={12} scrollWheelZoom className="route-map"><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /><MapRouteView coordinates={activeGeometry.coordinates} /><Polyline positions={routeCoordinates} pathOptions={{ color: '#087df3', weight: 6, opacity: 0.9 }} /><Marker position={start} icon={pickupIcon} draggable eventHandlers={{ dragend: (event) => updateRoutePoint('pickup', event) }}><Popup>Drag to adjust pickup</Popup></Marker><Marker position={end} icon={dropoffIcon} draggable eventHandlers={{ dragend: (event) => updateRoutePoint('dropoff', event) }}><Popup>Drag to adjust drop-off</Popup></Marker>{currentLocation?.latitude !== undefined && <Marker position={[currentLocation.latitude, currentLocation.longitude]} icon={driverIcon}><Popup>Driver location updated {currentLocation.updatedAt ? new Date(currentLocation.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'just now'}</Popup></Marker>}</MapContainer><div className="map-live-panel"><div><strong>{recalculating ? 'Updating route...' : `${etaMinutes} min route ETA`}</strong><span>{currentLocation ? 'Live driver position' : 'Waiting for driver location'}</span>{locationMessage && <small>{locationMessage}</small>}</div><button type="button" onClick={shareLocation}>Share my location</button></div></aside>
+}
+
+function MyRidesView({ bookings, loading, error }) {
+	return <div className="account-rides-page"><p className="eyebrow">YOUR JOURNEYS</p><h1>Your rides</h1>{loading && <p>Loading your bookings...</p>}{error && <p className="notice">{error}</p>}{!loading && !error && bookings.length === 0 && <div className="account-empty-state"><h2>Your future travel plans will appear here.</h2><p>Book a ride or publish one to see it in your travel history.</p></div>}{bookings.length > 0 && <div className="booking-history-list">{bookings.map((booking) => { const ride = booking.ride; if (!ride) return null; const departure = new Date(ride.departureAt); return <article className="booking-history-card" key={booking._id}><div><span className="eyebrow">{booking.status} · {booking.seats} seat{booking.seats > 1 ? 's' : ''}</span><h2>{ride.origin?.name} <span>→</span> {ride.destination?.name}</h2><p>{departure.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} · {departure.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p></div><strong>₹{Number(booking.totalPrice || 0)}</strong></article>})}</div>}</div>
 }
 
 function HomePage() {
@@ -137,6 +144,17 @@ function HomePage() {
 	const [activeAccountView, setActiveAccountView] = useState(null)
 	const [profileTab, setProfileTab] = useState('about')
 	const [profilePage, setProfilePage] = useState(null)
+	const [bookings, setBookings] = useState([])
+	const [bookingsLoading, setBookingsLoading] = useState(false)
+	const [bookingsError, setBookingsError] = useState('')
+	useEffect(() => {
+		if (activeAccountView !== 'rides' || !user) return undefined
+		let active = true
+		setBookingsLoading(true)
+		setBookingsError('')
+		getMyBookings().then((response) => { if (active) setBookings(response.data.bookings || []) }).catch((error) => { if (active) setBookingsError(error.response?.data?.message || 'Unable to load your bookings.') }).finally(() => { if (active) setBookingsLoading(false) })
+		return () => { active = false }
+	}, [activeAccountView, user])
 
 	const submitSearch = async (event) => {
 		event.preventDefault()
@@ -223,20 +241,7 @@ function HomePage() {
 			</header>
 
 			{activeAccountView === 'rides' && user && (
-				<div className="account-empty-state">
-					<div className="magnifier-wrap" aria-hidden="true">
-						<span className="magnifier-track magnifier-track-1" />
-						<span className="magnifier-track magnifier-track-2" />
-						<div className="magnifier-shell">
-							<div className="magnifier-ring">
-								<div className="magnifier-inner" />
-							</div>
-							<div className="magnifier-handle" />
-						</div>
-					</div>
-					<h2>Your future travel plans will<br />appear here.</h2>
-					<p>Find the perfect ride from thousands of destinations, or publish to share your travel costs.</p>
-				</div>
+				<MyRidesView bookings={bookings} loading={bookingsLoading} error={bookingsError} />
 			)}
 
 			{activeAccountView === 'inbox' && user && (
