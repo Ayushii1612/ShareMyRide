@@ -247,15 +247,22 @@ button { cursor: pointer; border: 0; }
 .ride-results-head h2 span { color: #087df3; padding: 0 6px; }
 .ride-results-head > strong { color: #193458; font-size: 14px; }
 .ride-results-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 20px; }
-.ride-results-map { position: relative; min-height: 300px; overflow: hidden; border: 1px solid #d7e2ee; border-radius: 13px; background: #e6eef3; }
+.ride-results-map { position: relative; min-height: 300px; overflow: visible; margin-bottom: 52px; border: 1px solid #d7e2ee; border-radius: 13px; background: #e6eef3; }
 .route-map { width: 100%; height: 100%; min-height: 300px; border-radius: 13px; z-index: 0; }
 .route-map .leaflet-container { width: 100%; height: 100%; min-height: 300px; border-radius: 13px; }
-.map-live-panel { position: absolute; left: 14px; right: 14px; bottom: 14px; z-index: 500; display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 13px; border: 1px solid rgba(255,255,255,.8); border-radius: 10px; background: rgba(255,255,255,.94); box-shadow: 0 5px 18px rgba(6,26,58,.16); font-size: 12px; }
-.map-live-panel div { display: grid; gap: 2px; }.map-live-panel strong { color: #087df3; }.map-live-panel span, .map-live-panel small { color: #52687d; }.map-live-panel button { border: 0; border-radius: 7px; padding: 8px 10px; background: #087df3; color: #fff; font-size: 11px; font-weight: 700; cursor: pointer; }
+.map-live-panel { position: absolute; left: 14px; right: 14px; bottom: 14px; z-index: 500; display: block; min-height: 72px; padding: 10px 13px 48px; border: 1px solid rgba(255,255,255,.8); border-radius: 10px; background: rgba(255,255,255,.96); box-shadow: 0 5px 18px rgba(6,26,58,.16); font-size: 12px; }
+.map-live-panel:not(:has(button)) { min-height: 0; padding-bottom: 10px; }
+.map-location-action { display: flex; justify-content: flex-end; padding: 8px 2px 0; }
+.map-location-action button { border: 1px solid #087df3; border-radius: 8px; padding: 9px 13px; background: #087df3; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
+.map-location-action button:disabled { border-color: #cbd8e5; background: #eef3f7; color: #60758a; cursor: not-allowed; }
+.map-location-action small { margin-left: 4px; font-size: 10px; font-weight: 500; }
+.map-live-panel div { display: grid; gap: 3px; min-width: 0; }.map-live-panel strong { color: #087df3; }.map-live-panel span { color: #52687d; }.map-live-panel small { color: #203b55; font-size: 12px; line-height: 1.35; font-weight: 700; }.map-live-panel button { position: absolute; right: 13px; bottom: 10px; border: 0; border-radius: 7px; padding: 8px 10px; background: #087df3; color: #fff; font-size: 11px; font-weight: 700; cursor: pointer; }
 .driver-map-icon, .pickup-map-icon, .dropoff-map-icon { display: grid; place-items: center; border: 3px solid #fff; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); box-shadow: 0 3px 10px rgba(6,26,58,.3); font-weight: 800; }
 .driver-map-icon { border-radius: 50%; background: #1fbd78; color: #fff; transform: none; font-size: 20px; }.pickup-map-icon { background: #087df3; color: #fff; }.dropoff-map-icon { background: #e45b5b; color: #fff; }
 .pickup-map-icon span, .dropoff-map-icon span { transform: rotate(45deg); }.driver-map-icon span { line-height: 1; }
 .account-rides-page { width: min(980px, calc(100% - 40px)); margin: 0 auto; padding: 80px 0; }.account-rides-page h1 { margin: 8px 0 28px; }.booking-history-list { display: grid; gap: 14px; }.booking-history-card { display: flex; justify-content: space-between; gap: 20px; align-items: center; padding: 22px 24px; border: 1px solid #d7e2ee; border-radius: 13px; background: #fff; box-shadow: 0 8px 24px rgba(6,26,58,.07); }.booking-history-card h2 { margin: 8px 0 6px; font-size: 20px; }.booking-history-card h2 span { color: #087df3; }.booking-history-card p { margin: 0; color: #52687d; }.booking-history-card > strong { color: #087df3; font-size: 18px; }
+.history-section-title { margin: 30px 0 14px; font-size: 18px; }.booking-passenger { color: #087df3 !important; font-weight: 700; }
+.view-live-map-button, .close-live-map { margin-top: 12px; border: 0; border-radius: 7px; padding: 8px 11px; background: #087df3; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }.history-live-map { margin-top: 20px; }.history-live-map .ride-results-map { min-height: 420px; }.close-live-map { margin-top: 8px; background: #52687d; }
 .map-road { position: absolute; height: 9px; border-radius: 9px; background: #fff; box-shadow: 0 0 0 2px #d1dfe6; transform-origin: left center; }
 .map-road-one { width: 280px; top: 80px; left: -20px; transform: rotate(28deg); }
 .map-road-two { width: 290px; top: 210px; left: -12px; transform: rotate(-24deg); }
@@ -265,6 +272,7 @@ button { cursor: pointer; border: 0; }
 .map-pin::first-letter { transform: rotate(45deg); }
 .map-pin-start { top: 58px; left: 54px; background: #087df3; }.map-pin-end { right: 48px; bottom: 56px; background: #e45b5b; }
 .ride-results-map button { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 11px 16px; border-radius: 22px; background: #087df3; color: #fff; font-weight: 700; white-space: nowrap; box-shadow: 0 4px 10px #061a3a25; z-index: 3; }
+.map-live-panel button { top: calc(100% + 8px); right: 0; bottom: auto; left: auto; transform: none; }
 .selected-ride-card { border-color: #8ec6ff; box-shadow: 0 0 0 2px rgba(8, 125, 243, 0.1); }
 .ride-results-list { display: grid; gap: 10px; }
 .ride-filter-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }.ride-filter-row strong { font-size: 15px; }.ride-filter-row button { padding: 8px 12px; border: 1px solid #d3dfeb; border-radius: 8px; background: #fff; color: #193458; font-size: 12px; }

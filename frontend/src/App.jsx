@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -11,7 +11,7 @@ import ForgotPassword from './pages/ForgotPassword.jsx'
 import { logout } from './features/auth/authSlice.js'
 import { changeUserPassword } from './api/auth.api.js'
 import { calculateRideRoute, createRide, getRide, searchRides, updateRideLocation } from './api/ride.api.js'
-import { createBooking, getMyBookings } from './api/booking.api.js'
+import { createBooking, getMyBookings, getMyRideBookings, getRidePassengerLocations, updatePassengerLocation } from './api/booking.api.js'
 
 const popularRoutes = [
 	['Gurgaon', 'Rohtak'],
@@ -60,6 +60,8 @@ function LocationField({ label, value, onChange, placeholder }) {
 	return <div className="location-field"><label><span>{label}</span><input value={query} onChange={(event) => { setQuery(event.target.value); onChange(null) }} onKeyDown={handleKeyDown} placeholder={placeholder} autoComplete="off" aria-autocomplete="list" aria-expanded={suggestions.length > 0} /><button type="button" onClick={useCurrentLocation} aria-label={`Use current location for ${label}`}>⌖</button></label>{loading && <small className="location-status">Searching places...</small>}{!loading && query.trim().length >= 2 && !value && suggestions.length === 0 && <small className="location-status">No places found. Try a nearby landmark or area.</small>}{suggestions.length > 0 && <div className="location-suggestions" role="listbox">{suggestions.map((place, index) => { const title = place.name || place.address?.road || place.display_name.split(',')[0]; const detail = place.display_name.replace(`${title},`, '').trim(); return <button className={index === activeIndex ? 'active' : ''} type="button" role="option" aria-selected={index === activeIndex} key={place.place_id} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(place)}><span className="location-pin">⌖</span><span className="location-copy"><strong>{title}</strong><small>{detail}</small></span></button> })}</div>}{query && !value && !loading && suggestions.length > 0 && <small className="location-hint">Select a place to use its exact road location.</small>}</div>
 }
 
+let activePassengerLocations = []
+
 function MapRouteView({ coordinates }) {
 	const map = useMap()
 	useEffect(() => {
@@ -67,10 +69,11 @@ function MapRouteView({ coordinates }) {
 		const bounds = coordinates.map(([lng, lat]) => [lat, lng])
 		map.fitBounds(bounds, { padding: [25, 25] })
 	}, [coordinates, map])
-	return null
+	return <>{activePassengerLocations.map((entry) => <Marker key={entry._id} position={[entry.passengerLocation.latitude, entry.passengerLocation.longitude]} icon={passengerIcon}><Popup>{entry.passenger?.firstName || 'Passenger'} live location</Popup></Marker>)}</>
 }
 
 const driverIcon = L.divIcon({ className: 'driver-map-icon', html: '<span>●</span>', iconSize: [30, 30], iconAnchor: [15, 15] })
+const passengerIcon = L.divIcon({ className: 'passenger-map-icon', html: '<span>P</span>', iconSize: [30, 30], iconAnchor: [15, 15] })
 const pickupIcon = L.divIcon({ className: 'pickup-map-icon', html: '<span>A</span>', iconSize: [30, 30], iconAnchor: [15, 30] })
 const dropoffIcon = L.divIcon({ className: 'dropoff-map-icon', html: '<span>B</span>', iconSize: [30, 30], iconAnchor: [15, 30] })
 
@@ -79,17 +82,34 @@ function RideMapPanel({ ride, pickup, dropoff }) {
 	const [liveRide, setLiveRide] = useState(ride)
 	const [recalculating, setRecalculating] = useState(false)
 	const [locationMessage, setLocationMessage] = useState('')
+	const [sharingLocation, setSharingLocation] = useState(false)
+	const [passengerLocation, setPassengerLocation] = useState(null)
+	const [passengerLocations, setPassengerLocations] = useState([])
+	activePassengerLocations = passengerLocations
+	const locationWatchRef = useRef(null)
 	useEffect(() => { setRouteGeometry(ride?.routeGeometry); setLiveRide(ride) }, [ride?._id, ride?.routeGeometry])
 	useEffect(() => {
 		if (!ride?._id) return undefined
 		let active = true
 		const refresh = async () => {
-			try { const response = await getRide(ride._id); if (active) setLiveRide(response.data.ride) } catch { /* a public map remains usable if tracking is unavailable */ }
+			try {
+				const response = await getRide(ride._id)
+				if (!active) return
+				setLiveRide(response.data.ride)
+				const viewer = JSON.parse(localStorage.getItem('carpooling_user') || 'null')
+				if (viewer?.id && String(response.data.ride.driver?._id || response.data.ride.driver) === String(viewer.id)) {
+					const locations = await getRidePassengerLocations(ride._id)
+					if (active) setPassengerLocations(locations.data.locations || [])
+				}
+			} catch { /* a public map remains usable if tracking is unavailable */ }
 		}
 		refresh()
 		const timer = window.setInterval(refresh, 5000)
 		return () => { active = false; window.clearInterval(timer) }
 	}, [ride?._id])
+	useEffect(() => () => {
+		if (locationWatchRef.current !== null) navigator.geolocation?.clearWatch(locationWatchRef.current)
+	}, [])
 	if (!ride?.routeGeometry?.coordinates?.length) {
 		return <aside className="ride-results-map"><div className="map-road map-road-one" /><div className="map-road map-road-two" /><div className="map-road map-road-three" /><span className="map-pin map-pin-start">A</span><span className="map-pin map-pin-end">B</span><button type="button">⌖ Show on map</button></aside>
 	}
@@ -109,20 +129,40 @@ function RideMapPanel({ ride, pickup, dropoff }) {
 	}
 	const currentLocation = liveRide?.currentLocation
 	const viewer = JSON.parse(localStorage.getItem('carpooling_user') || 'null')
-	const isDriver = Boolean(viewer?.id && liveRide?.driver && String(liveRide.driver._id || liveRide.driver) === String(viewer.id))
+	const driverIdentity = Boolean(viewer?.id && liveRide?.driver && String(liveRide.driver._id || liveRide.driver) === String(viewer.id))
+	const isDriver = true
 	const etaMinutes = Math.max(1, Math.round((liveRide?.routeDurationSeconds || ride.routeDurationSeconds || 0) / 60))
 	const shareLocation = () => {
-		if (!isDriver) return setLocationMessage('Only the driver can share this ride location.')
 		if (!navigator.geolocation) return setLocationMessage('Location is not supported by this browser.')
-		navigator.geolocation.getCurrentPosition(async ({ coords }) => {
-			try { const response = await updateRideLocation(ride._id, { latitude: coords.latitude, longitude: coords.longitude }); setLiveRide(response.data.ride); setLocationMessage('Your live location is shared.') } catch (error) { setLocationMessage(error.response?.data?.message || 'Only the driver can share this ride location.') }
-		}, () => setLocationMessage('Allow location access to share your position.'))
+		if (sharingLocation) {
+			navigator.geolocation.clearWatch(locationWatchRef.current)
+			locationWatchRef.current = null
+			setSharingLocation(false)
+			setLocationMessage('Live location sharing stopped.')
+			return
+		}
+		const publishLocation = async ({ coords }) => {
+			try {
+				if (driverIdentity) { const response = await updateRideLocation(ride._id, { latitude: coords.latitude, longitude: coords.longitude }); setLiveRide(response.data.ride) }
+				else { const response = await updatePassengerLocation(ride._id, { latitude: coords.latitude, longitude: coords.longitude }); setPassengerLocation(response.data.booking.passengerLocation) }
+				setLocationMessage(`Live location updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`)
+			} catch (error) { setLocationMessage(error.response?.data?.message || 'Unable to share this location.') }
+		}
+		locationWatchRef.current = navigator.geolocation.watchPosition(publishLocation, () => { setSharingLocation(false); setLocationMessage('Allow location access to share your position.') }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 })
+		setSharingLocation(true)
+		setLocationMessage('Live location sharing started.')
 	}
-	return <aside className="ride-results-map"><MapContainer center={routeCoordinates[Math.floor(routeCoordinates.length / 2)]} zoom={12} scrollWheelZoom className="route-map"><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /><MapRouteView coordinates={activeGeometry.coordinates} /><Polyline positions={routeCoordinates} pathOptions={{ color: '#087df3', weight: 6, opacity: 0.9 }} /><Marker position={start} icon={pickupIcon} draggable eventHandlers={{ dragend: (event) => updateRoutePoint('pickup', event) }}><Popup>Drag to adjust pickup</Popup></Marker><Marker position={end} icon={dropoffIcon} draggable eventHandlers={{ dragend: (event) => updateRoutePoint('dropoff', event) }}><Popup>Drag to adjust drop-off</Popup></Marker>{currentLocation?.latitude !== undefined && <Marker position={[currentLocation.latitude, currentLocation.longitude]} icon={driverIcon}><Popup>Driver location updated {currentLocation.updatedAt ? new Date(currentLocation.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'just now'}</Popup></Marker>}</MapContainer><div className="map-live-panel"><div><strong>{recalculating ? 'Updating route...' : `${etaMinutes} min route ETA`}</strong><span>{currentLocation ? 'Live driver position' : 'Waiting for driver location'}</span>{locationMessage && <small>{locationMessage}</small>}</div><button type="button" onClick={shareLocation}>Share my location</button></div></aside>
+	const lastUpdated = currentLocation?.updatedAt ? new Date(currentLocation.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null
+	return <aside className="ride-results-map"><MapContainer center={routeCoordinates[Math.floor(routeCoordinates.length / 2)]} zoom={12} scrollWheelZoom className="route-map"><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /><MapRouteView coordinates={activeGeometry.coordinates} /><Polyline positions={routeCoordinates} pathOptions={{ color: '#087df3', weight: 6, opacity: 0.9 }} /><Marker position={start} icon={pickupIcon} draggable eventHandlers={{ dragend: (event) => updateRoutePoint('pickup', event) }}><Popup>Drag to adjust pickup</Popup></Marker><Marker position={end} icon={dropoffIcon} draggable eventHandlers={{ dragend: (event) => updateRoutePoint('dropoff', event) }}><Popup>Drag to adjust drop-off</Popup></Marker>{currentLocation?.latitude !== undefined && <Marker position={[currentLocation.latitude, currentLocation.longitude]} icon={driverIcon}><Popup>Exact driver location · updated {lastUpdated || 'just now'}</Popup></Marker>}</MapContainer><div className="map-live-panel"><div><strong>{recalculating ? 'Updating route...' : `${etaMinutes} min route ETA`}</strong><span>{currentLocation ? `Live driver location · updated ${lastUpdated}` : 'Waiting for driver location'}</span>{locationMessage && <small>{locationMessage}</small>}</div>{isDriver && <button type="button" onClick={shareLocation}>{sharingLocation ? 'Stop sharing' : 'Share my location'}</button>}</div></aside>
 }
 
-function MyRidesView({ bookings, loading, error }) {
-	return <div className="account-rides-page"><p className="eyebrow">YOUR JOURNEYS</p><h1>Your rides</h1>{loading && <p>Loading your bookings...</p>}{error && <p className="notice">{error}</p>}{!loading && !error && bookings.length === 0 && <div className="account-empty-state"><h2>Your future travel plans will appear here.</h2><p>Book a ride or publish one to see it in your travel history.</p></div>}{bookings.length > 0 && <div className="booking-history-list">{bookings.map((booking) => { const ride = booking.ride; if (!ride) return null; const departure = new Date(ride.departureAt); return <article className="booking-history-card" key={booking._id}><div><span className="eyebrow">{booking.status} · {booking.seats} seat{booking.seats > 1 ? 's' : ''}</span><h2>{ride.origin?.name} <span>→</span> {ride.destination?.name}</h2><p>{departure.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} · {departure.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p></div><strong>₹{Number(booking.totalPrice || 0)}</strong></article>})}</div>}</div>
+function BookingHistoryList({ bookings, driverView = false, onViewMap }) {
+	return <div className="booking-history-list">{bookings.map((booking) => { const ride = booking.ride; if (!ride) return null; const departure = new Date(ride.departureAt); const passengerName = `${booking.passenger?.firstName || ''} ${booking.passenger?.lastName || ''}`.trim() || 'Passenger'; return <article className="booking-history-card" key={`${driverView ? 'driver' : 'passenger'}-${booking._id}`}><div><span className="eyebrow">{booking.status} · {booking.seats} seat{booking.seats > 1 ? 's' : ''}</span><h2>{ride.origin?.name} <span>→</span> {ride.destination?.name}</h2><p>{departure.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} · {departure.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>{driverView && <p className="booking-passenger">Accepted by {passengerName}</p>}<button type="button" className="view-live-map-button" onClick={() => onViewMap(ride)}>View live map</button></div><strong>₹{Number(booking.totalPrice || 0)}</strong></article>})}</div>
+}
+
+function MyRidesView({ bookings, driverBookings, loading, error }) {
+	const [liveRide, setLiveRide] = useState(null)
+	return <div className="account-rides-page"><p className="eyebrow">YOUR JOURNEYS</p><h1>Your rides</h1>{loading && <p>Loading your bookings...</p>}{error && <p className="notice">{error}</p>}{!loading && !error && bookings.length === 0 && driverBookings.length === 0 && <div className="account-empty-state"><h2>Your future travel plans will appear here.</h2><p>Book a ride or publish one to see it in your travel history.</p></div>}{bookings.length > 0 && <><h2 className="history-section-title">Rides you booked</h2><BookingHistoryList bookings={bookings} onViewMap={setLiveRide} /></>}{driverBookings.length > 0 && <><h2 className="history-section-title">Passengers on your rides</h2><BookingHistoryList bookings={driverBookings} driverView onViewMap={setLiveRide} /></>}{liveRide && <div className="history-live-map"><RideMapPanel ride={liveRide} /><button type="button" className="close-live-map" onClick={() => setLiveRide(null)}>Close live map</button></div>}</div>
 }
 
 function HomePage() {
@@ -145,6 +185,7 @@ function HomePage() {
 	const [profileTab, setProfileTab] = useState('about')
 	const [profilePage, setProfilePage] = useState(null)
 	const [bookings, setBookings] = useState([])
+	const [driverBookings, setDriverBookings] = useState([])
 	const [bookingsLoading, setBookingsLoading] = useState(false)
 	const [bookingsError, setBookingsError] = useState('')
 	useEffect(() => {
@@ -152,7 +193,7 @@ function HomePage() {
 		let active = true
 		setBookingsLoading(true)
 		setBookingsError('')
-		getMyBookings().then((response) => { if (active) setBookings(response.data.bookings || []) }).catch((error) => { if (active) setBookingsError(error.response?.data?.message || 'Unable to load your bookings.') }).finally(() => { if (active) setBookingsLoading(false) })
+		Promise.all([getMyBookings(), getMyRideBookings()]).then(([passengerResponse, driverResponse]) => { if (!active) return; setBookings(passengerResponse.data.bookings || []); setDriverBookings(driverResponse.data.bookings || []) }).catch((error) => { if (active) setBookingsError(error.response?.data?.message || 'Unable to load your bookings.') }).finally(() => { if (active) setBookingsLoading(false) })
 		return () => { active = false }
 	}, [activeAccountView, user])
 
@@ -241,7 +282,7 @@ function HomePage() {
 			</header>
 
 			{activeAccountView === 'rides' && user && (
-				<MyRidesView bookings={bookings} loading={bookingsLoading} error={bookingsError} />
+				<MyRidesView bookings={bookings} driverBookings={driverBookings} loading={bookingsLoading} error={bookingsError} />
 			)}
 
 			{activeAccountView === 'inbox' && user && (

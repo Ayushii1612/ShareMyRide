@@ -62,4 +62,35 @@ const getMyBookings = async (req, res) => {
   return res.json({ bookings });
 };
 
-module.exports = { createBooking, getMyBookings };
+const getMyRideBookings = async (req, res) => {
+  const bookings = await Booking.find({ driver: req.user._id })
+    .populate('ride')
+    .populate('passenger', 'firstName lastName email phone')
+    .sort({ createdAt: -1 });
+
+  return res.json({ bookings });
+};
+
+const updatePassengerLocation = async (req, res) => {
+  const latitude = Number(req.body.latitude);
+  const longitude = Number(req.body.longitude);
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    return res.status(422).json({ message: 'A valid latitude and longitude are required.' });
+  }
+  const booking = await Booking.findOneAndUpdate(
+    { ride: req.params.rideId, passenger: req.user._id, status: { $in: ['confirmed', 'completed'] } },
+    { passengerLocation: { latitude, longitude, updatedAt: new Date() } },
+    { new: true, runValidators: true },
+  ).populate('ride');
+  if (!booking) return res.status(404).json({ message: 'You do not have a confirmed booking for this ride.' });
+  return res.json({ booking });
+};
+
+const getRidePassengerLocations = async (req, res) => {
+  const bookings = await Booking.find({ ride: req.params.rideId, driver: req.user._id, status: { $in: ['confirmed', 'completed'] } })
+    .select('passenger passengerLocation')
+    .populate('passenger', 'firstName lastName');
+  return res.json({ locations: bookings.filter((booking) => booking.passengerLocation?.latitude !== undefined) });
+};
+
+module.exports = { createBooking, getMyBookings, getMyRideBookings, updatePassengerLocation, getRidePassengerLocations };
